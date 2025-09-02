@@ -226,3 +226,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+# MAKE SURE IT CAN DRAG AROUND TO DO WINDOW 
+# MAKE SURE YOU CAN CLOSE TO DO WINDOW
+# ADD SAVING AND LOADING AGAIN 
