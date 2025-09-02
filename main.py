@@ -17,7 +17,6 @@ TAG_HOVER_TEXT = "hover_text"
 TAG_BOX_EMPTY_TEX = "box_empty_tex"
 TAG_BOX_FILLED_TEX = "box_filled_tex"
 
-
 def rgba(r, g, b, a=255):
     return (r/255.0, g/255.0, b/255.0, a/255.0)
 
@@ -48,10 +47,10 @@ def make_box_textures(size=18):
 def ensure_todo_window(create_if_missing=True):
     exists = dpg.does_item_exist(TAG_TODO_WIN)
     if not exists and create_if_missing:
-        with dpg.window(tag=TAG_TODO_WIN, label="To-Do", pos=(220, 60), width=520, height=120, show=True):
+        with dpg.window(tag=TAG_TODO_WIN, label="To-Do", pos=(220, 60), width=400, height=120, show=True):
             with dpg.group(tag=TAG_TODO_GROUP):
                 with dpg.group(horizontal=True):
-                    dpg.add_input_text(tag=TAG_TODO_INPUT, hint="Add task:", on_enter=True, callback=on_add_task, width=420)
+                    dpg.add_input_text(tag=TAG_TODO_INPUT, hint="Add task:", on_enter=True, callback=on_add_task, width=300)
                     dpg.add_button(label="Add", callback=on_add_task, width=70)
                 with dpg.group(tag="todo_list_group"):
                     pass
@@ -63,6 +62,8 @@ def toggle_todo_window(_s=None, _a=None, _u=None):
         dpg.configure_item(TAG_TODO_WIN, show=True)
     else:
         dpg.configure_item(TAG_TODO_WIN, show=not dpg.is_item_shown(TAG_TODO_WIN))
+    for task in todo_list.tasks:
+        create_task_window(task)
 
 def on_add_task(_s, _a, _u=None):
     text = dpg.get_value(TAG_TODO_INPUT) if dpg.does_item_exist(TAG_TODO_INPUT) else ""
@@ -220,8 +221,6 @@ with dpg.handler_registry():
 
 # Re-create existing tasks
 dpg.setup_dearpygui()
-for task in todo_list.tasks:
-    create_task_window(task)
 
 dpg.show_viewport()
 dpg.start_dearpygui()
