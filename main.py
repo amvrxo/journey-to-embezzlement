@@ -1,37 +1,7 @@
-import json
-import os
 import dearpygui.dearpygui as dpg
+from todo_list import TodoList
 
-DATA_FILE = "todo_data.json"
 ICON_FILE = "notepad-icon.png"
-
-def load_tasks():
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, list):
-                    out = []
-                    for it in data:
-                        if isinstance(it, dict):
-                            out.append({
-                                "id": it.get("id", str(len(out)+1)),
-                                "text": str(it.get("text", "")),
-                                "done": bool(it.get("done", False))
-                            })
-                    return out
-        except Exception:
-            pass
-    return []
-
-def save_tasks():
-    try:
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(todo_list, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print("Failed to save tasks:", e)
-
-todo_list = load_tasks()
 
 TAG_TODO_WIN = "todo_window"
 TAG_TODO_GROUP = "todo_group"
@@ -47,11 +17,13 @@ TAG_HOVER_TEXT = "hover_text"
 TAG_BOX_EMPTY_TEX = "box_empty_tex"
 TAG_BOX_FILLED_TEX = "box_filled_tex"
 
-dragging = {"active": False, "start_mouse": (0.0, 0.0), "start_win": (0.0, 0.0)}
-spawn_counter = 0
 
 def rgba(r, g, b, a=255):
     return (r/255.0, g/255.0, b/255.0, a/255.0)
+
+todo_list = TodoList()
+
+dragging = {"active": False, "start_mouse": (0.0, 0.0), "start_win": (0.0, 0.0)}
 
 def make_box_textures(size=18):
     w = h = size
@@ -81,6 +53,8 @@ def ensure_todo_window(create_if_missing=True):
                 with dpg.group(horizontal=True):
                     dpg.add_input_text(tag=TAG_TODO_INPUT, hint="Add task:", on_enter=True, callback=on_add_task, width=420)
                     dpg.add_button(label="Add", callback=on_add_task, width=70)
+                with dpg.group(tag="todo_list_group"):
+                    pass
     return dpg.does_item_exist(TAG_TODO_WIN)
 
 def toggle_todo_window(_s=None, _a=None, _u=None):
@@ -96,59 +70,42 @@ def on_add_task(_s, _a, _u=None):
     if not text:
         return
     dpg.set_value(TAG_TODO_INPUT, "")
-    new_id = str(max([int(it["id"]) for it in todo_list] + [0]) + 1)
-    item = {"id": new_id, "text": text, "done": False}
-    todo_list.append(item)
-    save_tasks()
+    item = todo_list.add(text)
     create_task_window(item)
 
 def on_box_click(sender, app_data, user_data):
     tid = user_data["id"]
-    for it in todo_list:
-        if it["id"] == tid:
-            it["done"] = not it["done"]
-            tex = TAG_BOX_FILLED_TEX if it["done"] else TAG_BOX_EMPTY_TEX
-            dpg.configure_item(sender, texture_tag=tex)
-            break
-    save_tasks()
+    done = todo_list.toggle_done(tid)
+    if done is not None:
+        tex = TAG_BOX_FILLED_TEX if done else TAG_BOX_EMPTY_TEX
+        dpg.configure_item(sender, texture_tag=tex)
 
 def on_delete_task_window(sender, app_data, user_data):
     tid = user_data["id"]
-    win = user_data["win"]
-    for i, it in enumerate(todo_list):
-        if it["id"] == tid:
-            todo_list.pop(i)
-            break
-    save_tasks()
-    if dpg.does_item_exist(win):
-        dpg.delete_item(win)
+    todo_list.delete(tid)
+    table_row = dpg.get_item_parent(sender)
+    dpg.delete_item(table_row)
 
 def create_task_window(item):
-    global spawn_counter
-    base_x, base_y = 260, 160
-    dx = 24 * (spawn_counter % 10)
-    dy = 24 * (spawn_counter % 10)
-    pos = (base_x + dx, base_y + dy)
-    spawn_counter += 1
-    with dpg.window(label="", pos=pos, width=320, height=60, no_title_bar=True, no_resize=True, no_scrollbar=True) as task_win:
-        with dpg.table(header_row=False, policy=dpg.mvTable_SizingStretchProp):
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=28)
-            dpg.add_table_column()
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=28)
-            with dpg.table_row():
-                tex = TAG_BOX_FILLED_TEX if item.get("done") else TAG_BOX_EMPTY_TEX
-                dpg.add_image_button(texture_tag=tex, width=18, height=18, callback=on_box_click,
-                                     user_data={"id": item["id"]})
-                dpg.add_text(item["text"])
-                with dpg.theme() as red_btn_theme:
-                    with dpg.theme_component(dpg.mvButton):
-                        dpg.add_theme_color(dpg.mvThemeCol_Button, (150, 0, 0, 255))
-                        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (200, 0, 0, 255))
-                        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (255, 0, 0, 255))
-                btn = dpg.add_button(label="X", width=24, callback=on_delete_task_window,
-                                     user_data={"id": item["id"], "win": task_win})
-                dpg.bind_item_theme(btn, red_btn_theme)
+    with dpg.table(header_row=False, policy=dpg.mvTable_SizingStretchProp, parent="todo_list_group"):
+        dpg.add_table_column(width_fixed=True, init_width_or_weight=28)
+        dpg.add_table_column()
+        dpg.add_table_column(width_fixed=True, init_width_or_weight=28)
+        with dpg.table_row():
+            tex = TAG_BOX_FILLED_TEX if item.get("done") else TAG_BOX_EMPTY_TEX
+            dpg.add_image_button(texture_tag=tex, width=18, height=18, callback=on_box_click,
+                                    user_data={"id": item["id"]})
+            dpg.add_text(item["text"])
+            with dpg.theme() as red_btn_theme:
+                with dpg.theme_component(dpg.mvButton):
+                    dpg.add_theme_color(dpg.mvThemeCol_Button, (150, 0, 0, 255))
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (200, 0, 0, 255))
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (255, 0, 0, 255))
+            btn = dpg.add_button(label="X", width=24, callback=on_delete_task_window,
+                                    user_data={"id": item["id"]})
+            dpg.bind_item_theme(btn, red_btn_theme)
 
+# ---------------- ICON DRAG & HOVER ----------------
 def on_icon_mouse_down(sender, app_data, user_data=None):
     if dpg.is_item_hovered(TAG_ICON_BTN):
         dragging["active"] = True
@@ -189,6 +146,7 @@ def on_icon_hover(_s=None, _a=None, _u=None):
         _position_hover_text()
         dpg.configure_item(TAG_HOVER_WIN, show=True)
 
+# ------------------- GUI SETUP -------------------
 dpg.create_context()
 dpg.create_viewport(title="embezzlement", width=960, height=600)
 dpg.configure_app(docking=False)
@@ -260,8 +218,11 @@ with dpg.handler_registry():
     dpg.add_mouse_release_handler(callback=on_icon_mouse_release, button=dpg.mvMouseButton_Left)
     dpg.add_mouse_move_handler(callback=on_global_mouse_move)
 
+# Re-create existing tasks
 dpg.setup_dearpygui()
-dpg.show_viewport()
+for task in todo_list.tasks:
+    create_task_window(task)
 
+dpg.show_viewport()
 dpg.start_dearpygui()
 dpg.destroy_context()
