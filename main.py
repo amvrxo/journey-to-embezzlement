@@ -1,228 +1,231 @@
-import dearpygui.dearpygui as dpg
+import pygame
+import sys
+from pygame import Rect
 from todo_list import TodoList
 
-ICON_FILE = "notepad-icon.png"
+WIDTH, HEIGHT = 960, 600
+FPS = 120
 
-TAG_TODO_WIN = "todo_window"
-TAG_TODO_GROUP = "todo_group"
-TAG_TODO_INPUT = "todo_input"
-TAG_DONE_THEME = "done_text_theme"
-TAG_ICON_TEX = "todo_icon_tex"
-TAG_ICON_WIN = "todo_icon_window"
-TAG_ICON_BTN = "todo_icon_button"
-TAG_ICON_WIN_THEME = "icon_window_theme"
-TAG_ICON_BTN_THEME = "icon_button_theme"
-TAG_HOVER_WIN = "hover_window"
-TAG_HOVER_TEXT = "hover_text"
-TAG_BOX_EMPTY_TEX = "box_empty_tex"
-TAG_BOX_FILLED_TEX = "box_filled_tex"
-# Bello!
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+GRAY = (180, 180, 180)
+DARK_GRAY = (40, 40, 40)
+RED = (200, 32, 32)
+RED_H = (255, 64, 64)
+TEXT = (220, 220, 220)
+CLICK_THRESHOLD = 5  # pixels
 
-def rgba(r, g, b, a=255):
-    return (r/255.0, g/255.0, b/255.0, a/255.0)
+ICON_PATH = "notepad-icon.png"
 
-todo_list = TodoList()
+class ToDoApp:
+    def __init__(self, screen: pygame.Surface):
+        self.screen = screen
+        self.clock = pygame.time.Clock()
+        self.font = pygame.font.SysFont(None, 22)
+        self.font_small = pygame.font.SysFont(None, 18)
+        self.todo = TodoList()
 
-dragging = {"active": False, "start_mouse": (0.0, 0.0), "start_win": (0.0, 0.0)}
+        # --- icon ---
+        self.icon_img = self._load_icon(ICON_PATH)
+        self.icon_rect = self.icon_img.get_rect(topleft=(16, 16))
+        self.dragging = False
+        self.drag_off = (0, 0)
+        self.drag_start_pos = None
+        self.hover_icon = False
 
-def make_box_textures(size=18):
-    w = h = size
-    data_empty = []
-    data_filled = []
-    for y in range(h):
-        for x in range(w):
-            border = x == 0 or y == 0 or x == w-1 or y == h-1
-            if border:
-                data_empty.extend(rgba(180, 180, 180, 255))
-                data_filled.extend(rgba(180, 180, 180, 255))
+        # --- panel ---
+        self.panel_visible = False
+        self.panel_rect = Rect(220, 60, 420, 220)
+
+        # input field
+        self.input_rect = Rect(self.panel_rect.x + 12, self.panel_rect.y + 12, 300, 28)
+        self.add_btn_rect = Rect(self.input_rect.right + 8, self.input_rect.y, 70, 28)
+        self.input_active = False
+        self.input_text = ""
+
+        # rows start
+        self.list_start_y = self.input_rect.bottom + 10
+
+    def _load_icon(self, path):
+        try:
+            img = pygame.image.load(path).convert_alpha()
+        except Exception as e:
+            # placeholder 64x64
+            img = pygame.Surface((64, 64), pygame.SRCALPHA)
+            img.fill((0,0,0,0))
+            pygame.draw.rect(img, GRAY, img.get_rect(), border_radius=10, width=2)
+            pygame.draw.rect(img, GRAY, Rect(14,10,36,44), width=2, border_radius=4)
+            for y in range(16, 50, 8):
+                pygame.draw.line(img, GRAY, (18,y), (46,y), 1)
+        return img
+
+    def run(self):
+        while True:
+            dt = self.clock.tick(FPS)
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    self.on_mouse_down(event.pos)
+                if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                    self.on_mouse_up(event.pos)
+                if event.type == pygame.MOUSEMOTION:
+                    self.on_mouse_move(event.pos)
+
+                if event.type == pygame.KEYDOWN and self.panel_visible and self.input_active:
+                    self.on_key(event)
+
+            self.draw()
+
+    # ---------------- input handlers ----------------
+    def on_mouse_down(self, pos):
+        if self.icon_rect.collidepoint(pos):
+            # if click without moving -> we will toggle panel on mouse up if short click
+            self.dragging = True
+            mx, my = pos
+            ix, iy = self.icon_rect.topleft
+            self.drag_off = (mx - ix, my - iy)
+            self.drag_start_pos = pos
+        elif self.panel_visible:
+            # focus input if clicked in input rect
+            if self.input_rect.collidepoint(pos):
+                self.input_active = True
             else:
-                data_empty.extend(rgba(0, 0, 0, 0))
-                inner = 3 <= x <= w-4 and 3 <= y <= h-4
-                if inner:
-                    data_filled.extend(rgba(255, 255, 255, 255))
-                else:
-                    data_filled.extend(rgba(0, 0, 0, 0))
-    dpg.add_static_texture(w, h, data_empty, tag=TAG_BOX_EMPTY_TEX)
-    dpg.add_static_texture(w, h, data_filled, tag=TAG_BOX_FILLED_TEX)
+                self.input_active = False
 
-def ensure_todo_window(create_if_missing=True):
-    exists = dpg.does_item_exist(TAG_TODO_WIN)
-    if not exists and create_if_missing:
-        with dpg.window(tag=TAG_TODO_WIN, label="To-Do", pos=(220, 60), width=400, height=120, show=True):
-            with dpg.group(tag=TAG_TODO_GROUP):
-                with dpg.group(horizontal=True):
-                    dpg.add_input_text(tag=TAG_TODO_INPUT, hint="Add task:", on_enter=True, callback=on_add_task, width=300)
-                    dpg.add_button(label="Add", callback=on_add_task, width=70)
-                with dpg.group(tag="todo_list_group"):
-                    pass
-    return dpg.does_item_exist(TAG_TODO_WIN)
+            # add button
+            if self.add_btn_rect.collidepoint(pos):
+                self._add_task_from_input()
 
-def toggle_todo_window(_s=None, _a=None, _u=None):
-    if not ensure_todo_window(False):
-        ensure_todo_window(True)
-        dpg.configure_item(TAG_TODO_WIN, show=True)
-    else:
-        dpg.configure_item(TAG_TODO_WIN, show=not dpg.is_item_shown(TAG_TODO_WIN))
-    for task in todo_list.tasks:
-        create_task_window(task)
+            # task rows click handling
+            self._handle_task_click(pos)
 
-def on_add_task(_s, _a, _u=None):
-    text = dpg.get_value(TAG_TODO_INPUT) if dpg.does_item_exist(TAG_TODO_INPUT) else ""
-    text = text.strip()
-    if not text:
-        return
-    dpg.set_value(TAG_TODO_INPUT, "")
-    item = todo_list.add(text)
-    create_task_window(item)
+    def on_mouse_up(self, pos):
+        if self.dragging:
+            self.dragging = False
+            start_x, start_y = self.drag_start_pos
+            end_x, end_y = pos
+            distance = ((end_x - start_x) ** 2 + (end_y - start_y) ** 2) ** 0.5
+            if distance <= CLICK_THRESHOLD and self.icon_rect.collidepoint(pos):
+                # treat as a click
+                self.panel_visible = not self.panel_visible
 
-def on_box_click(sender, app_data, user_data):
-    tid = user_data["id"]
-    done = todo_list.toggle_done(tid)
-    if done is not None:
-        tex = TAG_BOX_FILLED_TEX if done else TAG_BOX_EMPTY_TEX
-        dpg.configure_item(sender, texture_tag=tex)
+    def on_mouse_move(self, pos):
+        self.hover_icon = self.icon_rect.collidepoint(pos)
+        if self.dragging and pygame.mouse.get_pressed(num_buttons=3)[0]:
+            mx, my = pos
+            offx, offy = self.drag_off
+            nx, ny = mx - offx, my - offy
+            # clamp to screen
+            nx = max(0, min(WIDTH - self.icon_rect.width, nx))
+            ny = max(0, min(HEIGHT - self.icon_rect.height, ny))
+            self.icon_rect.topleft = (nx, ny)
 
-def on_delete_task_window(sender, app_data, user_data):
-    tid = user_data["id"]
-    todo_list.delete(tid)
-    table_row = dpg.get_item_parent(sender)
-    dpg.delete_item(table_row)
+    def on_key(self, event):
+        if event.key == pygame.K_RETURN:
+            self._add_task_from_input()
+        elif event.key == pygame.K_BACKSPACE:
+            self.input_text = self.input_text[:-1]
+        else:
+            # basic ASCII text; ignore control characters
+            if event.unicode and event.unicode.isprintable():
+                self.input_text += event.unicode
 
-def create_task_window(item):
-    with dpg.table(header_row=False, policy=dpg.mvTable_SizingStretchProp, parent="todo_list_group"):
-        dpg.add_table_column(width_fixed=True, init_width_or_weight=28)
-        dpg.add_table_column()
-        dpg.add_table_column(width_fixed=True, init_width_or_weight=28)
-        with dpg.table_row():
-            tex = TAG_BOX_FILLED_TEX if item.get("done") else TAG_BOX_EMPTY_TEX
-            dpg.add_image_button(texture_tag=tex, width=18, height=18, callback=on_box_click,
-                                    user_data={"id": item["id"]})
-            dpg.add_text(item["text"])
-            with dpg.theme() as red_btn_theme:
-                with dpg.theme_component(dpg.mvButton):
-                    dpg.add_theme_color(dpg.mvThemeCol_Button, (150, 0, 0, 255))
-                    dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (200, 0, 0, 255))
-                    dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (255, 0, 0, 255))
-            btn = dpg.add_button(label="X", width=24, callback=on_delete_task_window,
-                                    user_data={"id": item["id"]})
-            dpg.bind_item_theme(btn, red_btn_theme)
+    # ---------------- tasks ----------------
+    def _add_task_from_input(self):
+        text = self.input_text.strip()
+        if not text:
+            return
+        item = self.todo.add(text)
+        self.input_text = ""
 
-# ---------------- ICON DRAG & HOVER ----------------
-def on_icon_mouse_down(sender, app_data, user_data=None):
-    if dpg.is_item_hovered(TAG_ICON_BTN):
-        dragging["active"] = True
-        dragging["start_mouse"] = dpg.get_mouse_pos()
-        dragging["start_win"] = dpg.get_item_pos(TAG_ICON_WIN)
-        dpg.focus_item(TAG_ICON_WIN)
-        if _is_shown(TAG_HOVER_WIN):
-            dpg.configure_item(TAG_HOVER_WIN, show=False)
+    def _handle_task_click(self, pos):
+        # iterate rows and see which checkbox or X was hit
+        y = self.list_start_y
+        for item in list(self.todo.tasks):
+            checkbox_rect = Rect(self.panel_rect.x + 12, y + 6, 18, 18)
+            text_rect = Rect(checkbox_rect.right + 10, y + 6, self.panel_rect.width - 80, 18)
+            del_rect = Rect(self.panel_rect.right - 32, y + 4, 24, 24)
 
-def on_icon_mouse_release(sender, app_data, user_data=None):
-    dragging["active"] = False
+            if checkbox_rect.collidepoint(pos):
+                self.todo.toggle_done(item["id"])
+                return
+            if del_rect.collidepoint(pos):
+                self.todo.delete(item["id"])
+                return
+            y += 30
 
-def on_global_mouse_move(sender, app_data):
-    if dragging["active"] and dpg.is_mouse_button_down(dpg.mvMouseButton_Left):
-        mx, my = dpg.get_mouse_pos()
-        sx, sy = dragging["start_mouse"]
-        wx, wy = dragging["start_win"]
-        nx = int(wx + (mx - sx))
-        ny = int(wy + (my - sy))
-        dpg.set_item_pos(TAG_ICON_WIN, (nx, ny))
-        if _is_shown(TAG_HOVER_WIN):
-            dpg.configure_item(TAG_HOVER_WIN, show=False)
-    else:
-        dragging["active"] = False
-        if not dpg.is_item_hovered(TAG_ICON_BTN) and _is_shown(TAG_HOVER_WIN):
-            dpg.configure_item(TAG_HOVER_WIN, show=False)
+    # ---------------- draw ----------------
+    def draw(self):
+        self.screen.fill(BLACK)
 
-def _is_shown(tag):
-    return dpg.does_item_exist(tag) and dpg.get_item_configuration(tag).get("show", False)
+        # icon
+        self.screen.blit(self.icon_img, self.icon_rect.topleft)
 
-def _position_hover_text():
-    bx, by = dpg.get_item_rect_min(TAG_ICON_BTN)
-    _, by2 = dpg.get_item_rect_max(TAG_ICON_BTN)
-    dpg.configure_item(TAG_HOVER_WIN, pos=(int(bx), int(by2 + 1)))
+        # hover label
+        if self.hover_icon and not self.dragging:
+            label = self.font_small.render("todo n dat", True, TEXT)
+            lx = self.icon_rect.left
+            ly = self.icon_rect.bottom + 2
+            self.screen.blit(label, (lx, ly))
 
-def on_icon_hover(_s=None, _a=None, _u=None):
-    if not dragging["active"]:
-        _position_hover_text()
-        dpg.configure_item(TAG_HOVER_WIN, show=True)
+        # panel
+        if self.panel_visible:
+            pygame.draw.rect(self.screen, DARK_GRAY, self.panel_rect, border_radius=6)
+            pygame.draw.rect(self.screen, GRAY, self.panel_rect, 1, border_radius=6)
 
-# ------------------- GUI SETUP -------------------
-dpg.create_context()
-dpg.create_viewport(title="embezzlement", width=960, height=600)
-dpg.configure_app(docking=False)
+            # input field
+            pygame.draw.rect(self.screen, (20,20,20), self.input_rect, border_radius=4)
+            pygame.draw.rect(self.screen, GRAY if self.input_active else (90,90,90), self.input_rect, 1, border_radius=4)
+            txt_surf = self.font.render(self.input_text or "Add task:", True, TEXT if self.input_text else (120,120,120))
+            self.screen.blit(txt_surf, (self.input_rect.x + 8, self.input_rect.y + 6))
 
-with dpg.theme(tag=TAG_DONE_THEME):
-    with dpg.theme_component(dpg.mvText):
-        dpg.add_theme_color(dpg.mvThemeCol_Text, (150, 150, 150, 255))
+            # add button
+            pygame.draw.rect(self.screen, (32,32,32), self.add_btn_rect, border_radius=4)
+            pygame.draw.rect(self.screen, GRAY, self.add_btn_rect, 1, border_radius=4)
+            add_s = self.font.render("Add", True, TEXT)
+            ax = self.add_btn_rect.centerx - add_s.get_width()//2
+            ay = self.add_btn_rect.centery - add_s.get_height()//2
+            self.screen.blit(add_s, (ax, ay))
 
-with dpg.theme() as global_theme:
-    with dpg.theme_component(dpg.mvAll):
-        dpg.add_theme_color(dpg.mvThemeCol_WindowBg, (0, 0, 0, 255))
-        dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (0, 0, 0, 255))
-        dpg.add_theme_color(dpg.mvThemeCol_PopupBg, (0, 0, 0, 255))
-dpg.bind_theme(global_theme)
-dpg.set_viewport_clear_color((0, 0, 0, 255))
+            # list rows
+            y = self.list_start_y
+            for item in self.todo.tasks:
+                # checkbox
+                checkbox_rect = Rect(self.panel_rect.x + 12, y + 6, 18, 18)
+                pygame.draw.rect(self.screen, GRAY, checkbox_rect, 1)
+                if item.get("done"):
+                    inner = checkbox_rect.inflate(-8, -8)
+                    pygame.draw.rect(self.screen, WHITE, inner)
 
-with dpg.theme(tag=TAG_ICON_WIN_THEME):
-    with dpg.theme_component(dpg.mvWindowAppItem):
-        dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize, 0.0)
-        dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0.0, 0.0)
+                # text
+                text_col = (150,150,150) if item.get("done") else TEXT
+                text_s = self.font.render(item["text"], True, text_col)
+                self.screen.blit(text_s, (checkbox_rect.right + 10, y + 6))
 
-with dpg.theme(tag=TAG_ICON_BTN_THEME):
-    with dpg.theme_component(dpg.mvImageButton):
-        dpg.add_theme_color(dpg.mvThemeCol_Button, (0, 0, 0, 0))
-        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (0, 0, 0, 0))
-        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (0, 0, 0, 0))
-        dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 0.0)
-        dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 0.0, 0.0)
+                # delete button
+                del_rect = Rect(self.panel_rect.right - 32, y + 4, 24, 24)
+                mouse_over_del = del_rect.collidepoint(pygame.mouse.get_pos())
+                pygame.draw.rect(self.screen, RED_H if mouse_over_del else RED, del_rect, border_radius=4)
+                x_s = self.font.render("X", True, WHITE)
+                self.screen.blit(x_s, (del_rect.centerx - x_s.get_width()//2, del_rect.centery - x_s.get_height()//2))
 
-icon_ok = False
-with dpg.texture_registry(show=False):
-    try:
-        w, h, c, data = dpg.load_image(ICON_FILE)
-        dpg.add_static_texture(w, h, data, tag=TAG_ICON_TEX)
-        icon_ok = True
-    except Exception as e:
-        print(f"Icon load failed: {e}")
-    make_box_textures(18)
+                y += 30
 
-with dpg.window(tag=TAG_ICON_WIN, label="", pos=(16, 16), width=64, height=64,
-                no_title_bar=True, no_resize=True, no_collapse=True, no_close=True,
-                no_scrollbar=True):
-    if icon_ok:
-        dpg.add_image_button(texture_tag=TAG_ICON_TEX, tag=TAG_ICON_BTN, width=64, height=64, callback=toggle_todo_window)
-        dpg.bind_item_theme(TAG_ICON_BTN, TAG_ICON_BTN_THEME)
-    else:
-        dpg.add_button(label="", tag=TAG_ICON_BTN, width=64, height=64, callback=toggle_todo_window)
-dpg.bind_item_theme(TAG_ICON_WIN, TAG_ICON_WIN_THEME)
+        pygame.display.flip()
 
-with dpg.theme() as hover_theme:
-    with dpg.theme_component(dpg.mvWindowAppItem):
-        dpg.add_theme_color(dpg.mvThemeCol_WindowBg, (0, 0, 0, 0))
-        dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize, 0.0)
-        dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0.0, 0.0)
-        dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0.0, 0.0)
 
-with dpg.window(tag=TAG_HOVER_WIN, label="", pos=(0, 0), no_title_bar=True,
-                no_move=True, no_resize=True, no_collapse=True, no_close=True,
-                no_scrollbar=True, show=False):
-    dpg.add_text("todo n dat", tag=TAG_HOVER_TEXT)
-dpg.bind_item_theme(TAG_HOVER_WIN, hover_theme)
+def main():
+    pygame.init()
+    pygame.display.set_caption("embezzlement")
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    app = ToDoApp(screen)
+    app.run()
 
-with dpg.item_handler_registry() as icon_handlers:
-    dpg.add_item_hover_handler(callback=on_icon_hover)
-dpg.bind_item_handler_registry(TAG_ICON_BTN, icon_handlers)
-
-with dpg.handler_registry():
-    dpg.add_mouse_down_handler(callback=on_icon_mouse_down, button=dpg.mvMouseButton_Left)
-    dpg.add_mouse_release_handler(callback=on_icon_mouse_release, button=dpg.mvMouseButton_Left)
-    dpg.add_mouse_move_handler(callback=on_global_mouse_move)
-
-# Re-create existing tasks
-dpg.setup_dearpygui()
-
-dpg.show_viewport()
-dpg.start_dearpygui()
-dpg.destroy_context()
+if __name__ == "__main__":
+    main()
+# MAKE SURE IT CAN DRAG AROUND TO DO WINDOW 
+# MAKE SURE YOU CAN CLOSE TO DO WINDOW
+# ADD SAVING AND LOADING AGAIN 
