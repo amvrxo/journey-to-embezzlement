@@ -1,73 +1,81 @@
-import pygame
+# app_container.py
 import sys
-from pygame import Rect
+import pygame
 from todo_list import TodoList
-
-WIDTH, HEIGHT = 960, 600
-FPS = 120
+from fidget_ting import FidgetTing, WIDTH, HEIGHT, FPS  # removed BG import
 
 BLACK = (0, 0, 0)
-WHITE = (255, 255, 255)
 
 class AppContainer:
     def __init__(self, screen: pygame.Surface):
         self.screen = screen
         self.clock = pygame.time.Clock()
-        self.font = pygame.font.SysFont(None, 22)
-        self.font_small = pygame.font.SysFont(None, 18)
         self.apps = {
             "todo": TodoList(),
+            "adhd": FidgetTing(),  # "adhd n dat" app
         }
 
     def run(self):
         while True:
-            dt = self.clock.tick(FPS)
+            dt = self.clock.tick(FPS) / 1000.0  # seconds
+
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     pygame.quit()
                     sys.exit()
 
-                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    self.on_mouse_down(event.pos)
-                if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-                    self.on_mouse_up(event.pos)
+                # Route mouse + keys to every app. Use ONLY (pos) so both TodoList and FidgetTing are happy.
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    for app in self.apps.values():
+                        if hasattr(app, "on_mouse_down"):
+                            app.on_mouse_down(event.pos)
+
+                if event.type == pygame.MOUSEBUTTONUP:
+                    for app in self.apps.values():
+                        if hasattr(app, "on_mouse_up"):
+                            app.on_mouse_up(event.pos)
+
                 if event.type == pygame.MOUSEMOTION:
-                    self.on_mouse_move(event.pos)
+                    for app in self.apps.values():
+                        if hasattr(app, "on_mouse_move"):
+                            app.on_mouse_move(event.pos)
+
                 if event.type == pygame.KEYDOWN:
-                    self.on_key(event)
+                    for app in self.apps.values():
+                        if hasattr(app, "on_key"):
+                            app.on_key(event)
+
+            # Per-frame updates (physics, timers, etc.)
+            for app in self.apps.values():
+                if hasattr(app, "update"):
+                    app.update(dt)
 
             self.draw()
 
-    # ---------------- input handlers ----------------
-    def on_mouse_down(self, pos):
-        for key in self.apps:
-            self.apps[key].on_mouse_down(pos)
-
-    def on_mouse_up(self, pos):
-        for key in self.apps:
-            self.apps[key].on_mouse_up(pos)
-
-    def on_mouse_move(self, pos):
-        for key in self.apps:
-            self.apps[key].on_mouse_move(pos)
-
-    def on_key(self, event):
-        for key in self.apps:
-            self.apps[key].on_key(event)
-    
-    # ---------------- draw ----------------
     def draw(self):
+        # Main app container background = always black
         self.screen.fill(BLACK)
-        for key in self.apps:
-            self.apps[key].draw(self.screen)
+
+        # Pass 1: draw icons (or legacy draw for apps without split API)
+        for app in self.apps.values():
+            if hasattr(app, "draw_icon"):
+                app.draw_icon(self.screen)
+            elif hasattr(app, "draw"):
+                app.draw(self.screen)
+
+        # Pass 2: overlays/windows on top (each window handles its own background)
+        for app in self.apps.values():
+            if hasattr(app, "draw_overlay"):
+                app.draw_overlay(self.screen)
+
         pygame.display.flip()
+
 
 def main():
     pygame.init()
     pygame.display.set_caption("embezzlement")
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    app = AppContainer(screen)
-    app.run()
+    AppContainer(screen).run()
 
 if __name__ == "__main__":
     main()
