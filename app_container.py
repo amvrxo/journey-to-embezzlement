@@ -2,6 +2,8 @@ import pygame
 import sys
 from pygame import Rect
 from todo_list import TodoList
+from fidget import Fidget
+from template import Template
 
 WIDTH, HEIGHT = 960, 600
 FPS = 120
@@ -16,7 +18,9 @@ class AppContainer:
         self.font = pygame.font.SysFont(None, 22)
         self.font_small = pygame.font.SysFont(None, 18)
         self.apps = {
-            "todo": TodoList(),
+            "todo": TodoList(0),
+            "fidget": Fidget(1),
+            "template": Template(2),  # replace with actual app
         }
 
     def run(self):
@@ -58,6 +62,8 @@ class AppContainer:
     # ---------------- draw ----------------
     def draw(self):
         self.screen.fill(BLACK)
+        for key in self.apps:
+            self.apps[key].draw_icon(self.screen)
         for key in self.apps:
             self.apps[key].draw(self.screen)
         pygame.display.flip()

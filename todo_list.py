@@ -1,5 +1,6 @@
 import pygame
 from pygame import Rect
+from utils import load_icon
 
 WIDTH, HEIGHT = 960, 600
 FPS = 120
@@ -14,10 +15,10 @@ TEXT = (220, 220, 220)
 CLICK_THRESHOLD = 5
 
 class TodoList:
-    def __init__(self):
+    def __init__(self, app_number):
         self._next_id = 1
-        self.icon_img = self._load_icon("notepad-icon.png")
-        self.icon_rect = self.icon_img.get_rect(topleft=(16, 16))
+        self.icon_img = load_icon("notepad-icon.png")
+        self.icon_rect = self.icon_img.get_rect(topleft=(16 + 80 * app_number, 16))
         self.tasks = []
         self.should_draw = False
         self.panel_rect = Rect(220, 60, 420, 220)
@@ -32,19 +33,6 @@ class TodoList:
         self.drag_off = (0, 0)
         self.drag_start_pos = None
         self.hover_icon = False
-
-    def _load_icon(self, path):
-        try:
-            img = pygame.image.load(path).convert_alpha()
-        except Exception as e:
-            # placeholder 64x64
-            img = pygame.Surface((64, 64), pygame.SRCALPHA)
-            img.fill((0,0,0,0))
-            pygame.draw.rect(img, GRAY, img.get_rect(), border_radius=10, width=2)
-            pygame.draw.rect(img, GRAY, Rect(14,10,36,44), width=2, border_radius=4)
-            for y in range(16, 50, 8):
-                pygame.draw.line(img, GRAY, (18,y), (46,y), 1)
-        return img
 
     def add(self, text: str):
         item = {"id": self._next_id, "text": text, "done": False}
@@ -136,7 +124,7 @@ class TodoList:
                 return
             y += 30
 
-    def draw(self, screen):
+    def draw_icon(self, screen):
         screen.blit(self.icon_img, self.icon_rect.topleft)
 
         if self.hover_icon and not self.dragging:
@@ -145,6 +133,7 @@ class TodoList:
             ly = self.icon_rect.bottom + 2
             screen.blit(label, (lx, ly))
 
+    def draw(self, screen):
         if self.should_draw:
             pygame.draw.rect(screen, DARK_GRAY, self.panel_rect, border_radius=6)
             pygame.draw.rect(screen, GRAY, self.panel_rect, 1, border_radius=6)
